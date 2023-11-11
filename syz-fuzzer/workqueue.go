@@ -4,9 +4,11 @@
 package main
 
 import (
+	"math/rand"
 	"sync"
 
 	"github.com/google/syzkaller/pkg/ipc"
+	"github.com/google/syzkaller/pkg/log"
 	"github.com/google/syzkaller/prog"
 )
 
@@ -16,6 +18,7 @@ import (
 // in order to not permanently lose interesting programs in case of VM crash.
 type WorkQueue struct {
 	mu              sync.RWMutex
+	important       []*WorkImportant
 	triageCandidate []*WorkTriage
 	candidate       []*WorkCandidate
 	triage          []*WorkTriage
@@ -31,8 +34,19 @@ const (
 	ProgCandidate ProgTypes = 1 << iota
 	ProgMinimized
 	ProgSmashed
+	ProgImportant
 	ProgNormal ProgTypes = 0
 )
+
+// WorkImportant are seeds that cause important function coverage adding.
+// temporary data is keeping this
+type WorkImportant struct {
+	p     *prog.Prog
+	call  int
+	opp   int
+	hint  bool
+	flags ProgTypes
+}
 
 // WorkTriage are programs for which we noticed potential new coverage during
 // first execution. But we are not sure yet if the coverage is real or not.
@@ -68,6 +82,27 @@ func newWorkQueue(procs int, needCandidates chan struct{}) *WorkQueue {
 	}
 }
 
+func (wq *WorkQueue) rev_enqueue(item interface{}) {
+	wq.mu.Lock()
+	defer wq.mu.Unlock()
+	switch item := item.(type) {
+	case *WorkTriage:
+		if item.flags&ProgCandidate != 0 {
+			wq.triageCandidate = append([]*WorkTriage{item}, wq.triageCandidate...)
+		} else {
+			wq.triage = append([]*WorkTriage{item}, wq.triage...)
+		}
+	case *WorkCandidate:
+		wq.candidate = append([]*WorkCandidate{item}, wq.candidate...)
+	case *WorkSmash:
+		wq.smash = append([]*WorkSmash{item}, wq.smash...)
+	case *WorkImportant:
+		wq.important = append([]*WorkImportant{item}, wq.important...)
+	default:
+		panic("unknown work type")
+	}
+}
+
 func (wq *WorkQueue) enqueue(item interface{}) {
 	wq.mu.Lock()
 	defer wq.mu.Unlock()
@@ -82,6 +117,8 @@ func (wq *WorkQueue) enqueue(item interface{}) {
 		wq.candidate = append(wq.candidate, item)
 	case *WorkSmash:
 		wq.smash = append(wq.smash, item)
+	case *WorkImportant:
+		wq.important = append(wq.important, item)
 	default:
 		panic("unknown work type")
 	}
@@ -96,23 +133,39 @@ func (wq *WorkQueue) dequeue() (item interface{}) {
 	wq.mu.RUnlock()
 	wq.mu.Lock()
 	wantCandidates := false
-	if len(wq.triageCandidate) != 0 {
-		last := len(wq.triageCandidate) - 1
-		item = wq.triageCandidate[last]
-		wq.triageCandidate = wq.triageCandidate[:last]
-	} else if len(wq.candidate) != 0 {
-		last := len(wq.candidate) - 1
-		item = wq.candidate[last]
-		wq.candidate = wq.candidate[:last]
-		wantCandidates = len(wq.candidate) < wq.procs
-	} else if len(wq.triage) != 0 {
-		last := len(wq.triage) - 1
-		item = wq.triage[last]
-		wq.triage = wq.triage[:last]
-	} else if len(wq.smash) != 0 {
-		last := len(wq.smash) - 1
-		item = wq.smash[last]
-		wq.smash = wq.smash[:last]
+
+	ok := rand.Intn(2)
+	log.Logf(1, "workqueue - ipt: %v,cand: %v, tri: %v, sma: %v", len(wq.important), len(wq.candidate), len(wq.triage), len(wq.smash))
+	if ok == 1 {
+		log.Logf(1, "now important seed first...")
+		item = nil
+		if len(wq.important) != 0 {
+			// FIXME: Do not really dequeue the seeds in WorkImportant
+			// add the last item to head for another mutate
+			// FIX: Do not judge in workqueue, do like candidate as usual
+			last := len(wq.important) - 1
+			item = wq.important[last]
+			wq.important = wq.important[:last]
+		}
+	} else {
+		if len(wq.triageCandidate) != 0 {
+			last := len(wq.triageCandidate) - 1
+			item = wq.triageCandidate[last]
+			wq.triageCandidate = wq.triageCandidate[:last]
+		} else if len(wq.candidate) != 0 {
+			last := len(wq.candidate) - 1
+			item = wq.candidate[last]
+			wq.candidate = wq.candidate[:last]
+			wantCandidates = len(wq.candidate) < wq.procs
+		} else if len(wq.triage) != 0 {
+			last := len(wq.triage) - 1
+			item = wq.triage[last]
+			wq.triage = wq.triage[:last]
+		} else if len(wq.smash) != 0 {
+			last := len(wq.smash) - 1
+			item = wq.smash[last]
+			wq.smash = wq.smash[:last]
+		}
 	}
 	wq.mu.Unlock()
 	if wantCandidates {

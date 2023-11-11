@@ -183,8 +183,8 @@ func makeDWARFUnsafe(target *targets.Target, objDir, srcDir, buildDir string,
 		Symbolize: func(pcs map[*Module][]uint64) ([]Frame, error) {
 			return symbolize(target, objDir, srcDir, buildDir, pcs)
 		},
-		RestorePC: func(pc uint32) uint64 {
-			return PreviousInstructionPC(target, RestorePC(pc, uint32(pcBase>>32)))
+		RestorePC: func(pc uint64) uint64 {
+			return PreviousInstructionPC(target, RestorePC(uint64(pc), uint32(pcBase>>32)))
 		},
 	}
 	return impl, nil

@@ -9,9 +9,11 @@ import (
 
 func (p *Prog) Clone() *Prog {
 	newargs := make(map[*ResultArg]*ResultArg)
+	// FIX: discarded comments?
 	p1 := &Prog{
 		Target: p.Target,
 		Calls:  cloneCalls(p.Calls, newargs),
+		// Enqueue: p.Enqueue,
 	}
 	p1.debugValidate()
 	return p1

@@ -15,7 +15,7 @@ type Impl struct {
 	Symbols   []*Symbol
 	Frames    []Frame
 	Symbolize func(pcs map[*Module][]uint64) ([]Frame, error)
-	RestorePC func(pc uint32) uint64
+	RestorePC func(pc uint64) uint64
 }
 
 type Module struct {

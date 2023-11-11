@@ -996,6 +996,7 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		bool prev_filter = true;
 		for (uint32 i = 0; i < cov->size; i++) {
 			cover_data_t pc = cover_data[i] + cov->pc_offset;
+			// Mandatory type conversion to uint32
 			uint32 sig = pc;
 			if (use_cover_edges(pc))
 				sig ^= hash(prev_pc);
@@ -1027,7 +1028,9 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		// Truncate PCs to uint32 assuming that they fit into 32-bits.
 		// True for x86_64 and arm64 without KASLR.
 		for (uint32 i = 0; i < cover_size; i++)
-			write_output(cover_data[i] + cov->pc_offset);
+			// write_output(cover_data[i] + cov->pc_offset);
+			// only support 64bit system now
+			write_output_64(cover_data[i] + cov->pc_offset);
 		*cover_count_pos = cover_size;
 	}
 }

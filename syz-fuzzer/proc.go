@@ -76,6 +76,8 @@ func (proc *Proc) loop() {
 				proc.execute(proc.execOpts, item.p, item.flags, StatCandidate)
 			case *WorkSmash:
 				proc.smashInput(item)
+			case *WorkImportant:
+				proc.mutateInput(item)
 			default:
 				log.Fatalf("unknown work type: %#v", item)
 			}
@@ -122,7 +124,7 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 	)
 	// Compute input coverage and non-flaky signal for minimization.
 	notexecuted := 0
-	rawCover := []uint32{}
+	rawCover := []uint64{}
 	for i := 0; i < signalRuns; i++ {
 		info := proc.executeRaw(proc.execOptsCover, item.p, StatTriage)
 		if !reexecutionSuccess(info, &item.info, item.call) {
@@ -135,7 +137,7 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 		}
 		thisSignal, thisCover := getSignalAndCover(item.p, info, item.call)
 		if len(rawCover) == 0 && proc.fuzzer.fetchRawCover {
-			rawCover = append([]uint32{}, thisCover...)
+			rawCover = append([]uint64{}, thisCover...)
 		}
 		newSignal = newSignal.Intersection(thisSignal)
 		// Without !minimized check manager starts losing some considerable amount
@@ -143,7 +145,7 @@ func (proc *Proc) triageInput(item *WorkTriage) {
 		if newSignal.Empty() && item.flags&ProgMinimized == 0 {
 			return
 		}
-		inputCover.Merge(thisCover)
+		inputCover.MergeRaw(thisCover)
 	}
 	if item.flags&ProgMinimized == 0 {
 		item.p, item.call = prog.Minimize(item.p, item.call, false,
@@ -198,7 +200,7 @@ func reexecutionSuccess(info *ipc.ProgInfo, oldInfo *ipc.CallInfo, call int) boo
 	return len(info.Extra.Signal) != 0
 }
 
-func getSignalAndCover(p *prog.Prog, info *ipc.ProgInfo, call int) (signal.Signal, []uint32) {
+func getSignalAndCover(p *prog.Prog, info *ipc.ProgInfo, call int) (signal.Signal, []uint64) {
 	inf := &info.Extra
 	if call != -1 {
 		inf = &info.Calls[call]
@@ -220,6 +222,48 @@ func (proc *Proc) smashInput(item *WorkSmash) {
 		log.Logf(1, "#%v: smash mutated", proc.pid)
 		proc.executeAndCollide(proc.execOpts, p, ProgNormal, StatSmash)
 	}
+}
+
+// Mutate an existing ipt prog frequently.
+func (proc *Proc) mutateInput(item *WorkImportant) {
+	// TODO: mutate the IPT seeds
+	// FIX: slow start algorithm
+	wq := proc.fuzzer.workQueue
+	if item.opp < 100 {
+		item.opp += 5
+		// FIXME: add the item to the head of the queue
+		wq.rev_enqueue(item)
+		return
+	} else if item.opp == 100 {
+		item.hint = true
+	}
+	ct := proc.fuzzer.choiceTable
+	corpus := proc.fuzzer.snapshot().corpus
+	p := item.p
+	// FIX: clear the enqueue, since now all the seed will different from begin
+
+	if item.hint {
+		// FIXME: add executeHint
+		if proc.fuzzer.comparisonTracingEnabled && item.call != -1 {
+			// item.p.Enqueue = false
+			proc.executeHintSeed(p, item.call)
+			// FIXME: only one change to hint execute
+			item.hint = false
+		}
+	}
+
+	for item.opp > 0 {
+		// item.p.Enqueue = false
+		p.Mutate(proc.rnd, prog.RecommendedCalls, ct, corpus)
+		// item.call is the one to lead mutate
+		// item.Calls[item.call] is the really syscall
+		log.Logf(1, "#%v: mutating input", proc.pid)
+		proc.execute(proc.execOpts, p, ProgNormal, StatImportant)
+		item.opp--
+	}
+	// FIXME: whatever, do not delete the seed in workQueue important
+	// item.p.Enqueue = true
+	wq.rev_enqueue(item)
 }
 
 func (proc *Proc) failCall(p *prog.Prog, call int) {
@@ -252,10 +296,14 @@ func (proc *Proc) executeHintSeed(p *prog.Prog, call int) {
 }
 
 func (proc *Proc) execute(execOpts *ipc.ExecOpts, p *prog.Prog, flags ProgTypes, stat Stat) *ipc.ProgInfo {
+	// must collect cover for ipt
+	execOpts.Flags |= ipc.FlagCollectCover
+
 	info := proc.executeRaw(execOpts, p, stat)
 	if info == nil {
 		return nil
 	}
+
 	calls, extra := proc.fuzzer.checkNewSignal(p, info)
 	for _, callIndex := range calls {
 		proc.enqueueCallTriage(p, flags, callIndex, info.Calls[callIndex])
@@ -263,6 +311,31 @@ func (proc *Proc) execute(execOpts *ipc.ExecOpts, p *prog.Prog, flags ProgTypes,
 	if extra {
 		proc.enqueueCallTriage(p, flags, -1, info.Extra)
 	}
+
+	newcalls := proc.fuzzer.checkNewCoverIPT(p, info)
+	log.Logf(1, "NewCoverIPT: %v", newcalls != nil)
+	for _, CallIndex := range newcalls {
+		// enqueue := p.Enqueue
+		// if !enqueue {
+		// p.Enqueue = true
+		proc.fuzzer.workQueue.enqueue(&WorkImportant{
+			p:     p.Clone(),
+			call:  CallIndex,
+			opp:   100,  // 100 mutate oppourity
+			hint:  true, // only one hint mutate oppourity
+			flags: flags,
+		})
+		// }
+	}
+	// we do not need extra converage now
+	// if newextra {
+	// 	proc.fuzzer.workQueue.enqueue(&WorkImportant{
+	// 		p:     p.Clone(),
+	// 		call:  -1,
+	// 		flags: flags,
+	// 	})
+	// }
+
 	return info
 }
 

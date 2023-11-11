@@ -17,9 +17,10 @@ type Input struct {
 	Call     string
 	Prog     []byte
 	Signal   signal.Serial
-	Cover    []uint32
+	Cover    []uint64
 	CallID   int // seq number of call in the prog to which the item is related (-1 for extra)
-	RawCover []uint32
+	RawCover []uint64
+	IPTCover []uint64
 }
 
 type Candidate struct {

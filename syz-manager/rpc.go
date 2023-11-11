@@ -276,7 +276,7 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 	if f != nil && f.rotated {
 		f.rotatedSignal.Merge(inputSignal)
 	}
-	diff := serv.corpusCover.MergeDiff(a.Cover)
+	diff := serv.corpusCover.MergeDiffRaw(a.Cover)
 	serv.stats.corpusCover.set(len(serv.corpusCover))
 	if len(diff) != 0 && serv.coverFilter != nil {
 		// Note: ReportGenerator is already initialized if coverFilter is enabled.

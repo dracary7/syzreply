@@ -659,10 +659,10 @@ func RunTest(req *RunRequest, executor string) {
 		// Detach Signal and Cover because they point into the output shmem region.
 		for i := range info.Calls {
 			info.Calls[i].Signal = append([]uint32{}, info.Calls[i].Signal...)
-			info.Calls[i].Cover = append([]uint32{}, info.Calls[i].Cover...)
+			info.Calls[i].Cover = append([]uint64{}, info.Calls[i].Cover...)
 		}
 		info.Extra.Signal = append([]uint32{}, info.Extra.Signal...)
-		info.Extra.Cover = append([]uint32{}, info.Extra.Cover...)
+		info.Extra.Cover = append([]uint64{}, info.Extra.Cover...)
 		req.Info = append(req.Info, info)
 	}
 }

@@ -12,6 +12,7 @@ type Prog struct {
 	Target   *Target
 	Calls    []*Call
 	Comments []string
+	// Enqueue  bool
 }
 
 // These properties are parsed and serialized according to the tag and the type
