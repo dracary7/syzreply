@@ -24,7 +24,7 @@ import (
 	"github.com/google/syzkaller/pkg/mgrconfig"
 )
 
-func (rg *ReportGenerator) DoHTML(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoHTML(w io.Writer, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	files, err := rg.prepareFileMap(progs)
 	if err != nil {
@@ -127,7 +127,7 @@ type lineCoverExport struct {
 	Both      []int `json:",omitempty"`
 }
 
-func (rg *ReportGenerator) DoLineJSON(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoLineJSON(w io.Writer, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	files, err := rg.prepareFileMap(progs)
 	if err != nil {
@@ -179,7 +179,7 @@ func fileLineContents(file *file, lines [][]byte) lineCoverExport {
 	return lce
 }
 
-func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	if err := rg.lazySymbolize(progs); err != nil {
 		return err
@@ -200,7 +200,7 @@ func (rg *ReportGenerator) DoRawCoverFiles(w http.ResponseWriter, progs []Prog, 
 	return nil
 }
 
-func (rg *ReportGenerator) DoRawCover(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32) {
+func (rg *ReportGenerator) DoRawCover(w http.ResponseWriter, progs []Prog, coverFilter map[uint64]uint64) {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	var pcs []uint64
 	if len(progs) == 1 && rg.rawCoverEnabled {
@@ -229,7 +229,7 @@ func (rg *ReportGenerator) DoRawCover(w http.ResponseWriter, progs []Prog, cover
 	buf.Flush()
 }
 
-func (rg *ReportGenerator) DoFilterPCs(w http.ResponseWriter, progs []Prog, coverFilter map[uint32]uint32) {
+func (rg *ReportGenerator) DoFilterPCs(w http.ResponseWriter, progs []Prog, coverFilter map[uint64]uint64) {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	var pcs []uint64
 	uniquePCs := make(map[uint64]bool)
@@ -239,7 +239,7 @@ func (rg *ReportGenerator) DoFilterPCs(w http.ResponseWriter, progs []Prog, cove
 				continue
 			}
 			uniquePCs[pc] = true
-			if coverFilter[uint32(pc)] != 0 {
+			if coverFilter[uint64(pc&0xffffffff+0xffffffff00000000)] != 0 {
 				pcs = append(pcs, pc)
 			}
 		}
@@ -334,7 +334,7 @@ func (rg *ReportGenerator) convertToStats(progs []Prog) ([]fileStats, error) {
 	return data, nil
 }
 
-func (rg *ReportGenerator) DoCSVFiles(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoCSVFiles(w io.Writer, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	data, err := rg.convertToStats(progs)
 	if err != nil {
@@ -434,7 +434,7 @@ func groupCoverByFilePrefixes(datas []fileStats, subsystems []mgrconfig.Subsyste
 	return d
 }
 
-func (rg *ReportGenerator) DoHTMLTable(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoHTMLTable(w io.Writer, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	data, err := rg.convertToStats(progs)
 	if err != nil {
@@ -510,7 +510,7 @@ func groupCoverByModule(datas []fileStats) map[string]map[string]string {
 	return d
 }
 
-func (rg *ReportGenerator) DoModuleCover(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoModuleCover(w io.Writer, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	data, err := rg.convertToStats(progs)
 	if err != nil {
@@ -530,7 +530,7 @@ var csvHeader = []string{
 	"Total PCs",
 }
 
-func (rg *ReportGenerator) DoCSV(w io.Writer, progs []Prog, coverFilter map[uint32]uint32) error {
+func (rg *ReportGenerator) DoCSV(w io.Writer, progs []Prog, coverFilter map[uint64]uint64) error {
 	progs = fixUpPCs(rg.target.Arch, progs, coverFilter)
 	files, err := rg.prepareFileMap(progs)
 	if err != nil {
@@ -562,12 +562,12 @@ func (rg *ReportGenerator) DoCSV(w io.Writer, progs []Prog, coverFilter map[uint
 	return writer.WriteAll(data)
 }
 
-func fixUpPCs(target string, progs []Prog, coverFilter map[uint32]uint32) []Prog {
+func fixUpPCs(target string, progs []Prog, coverFilter map[uint64]uint64) []Prog {
 	if coverFilter != nil {
 		for i, prog := range progs {
 			var nPCs []uint64
 			for _, pc := range prog.PCs {
-				if coverFilter[uint32(pc)] != 0 {
+				if coverFilter[uint64(pc&0xffffffff+0xffffffff00000000)] != 0 {
 					nPCs = append(nPCs, pc)
 				}
 			}

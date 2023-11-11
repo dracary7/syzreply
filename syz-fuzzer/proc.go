@@ -254,7 +254,7 @@ func (proc *Proc) mutateInput(item *WorkImportant) {
 
 	for item.opp > 0 {
 		// item.p.Enqueue = false
-		p.Mutate(proc.rnd, prog.RecommendedCalls, ct, corpus)
+		p.Mutate(proc.rnd, prog.RecommendedCalls, ct, proc.fuzzer.noMutate, corpus)
 		// item.call is the one to lead mutate
 		// item.Calls[item.call] is the really syscall
 		log.Logf(1, "#%v: mutating input", proc.pid)

@@ -200,8 +200,8 @@ func makeDWARFUnsafe(params *dwarfParams) (*Impl, error) {
 	return impl, nil
 }
 
-func makeRestorePC(params *dwarfParams, pcBase uint64) func(pc uint32) uint64 {
-	return func(pcLow uint32) uint64 {
+func makeRestorePC(params *dwarfParams, pcBase uint64) func(pc uint64) uint64 {
+	return func(pcLow uint64) uint64 {
 		pc := PreviousInstructionPC(params.target, RestorePC(pcLow, uint32(pcBase>>32)))
 		if pc >= params.pcFixUpStart && pc < params.pcFixUpEnd {
 			pc -= params.pcFixUpOffset

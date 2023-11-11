@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"os"
@@ -94,8 +95,8 @@ type Manager struct {
 	usedFiles map[string]time.Time
 
 	modules            []host.KernelModule
-	coverFilter        map[uint32]uint32
-	execCoverFilter    map[uint32]uint32
+	coverFilter        map[uint64]uint64
+	execCoverFilter    map[uint64]uint64
 	modulesInitialized bool
 
 	assetStorage *asset.Storage
@@ -1371,7 +1372,7 @@ func (mgr *Manager) collectSyscallInfoUnlocked() map[string]*CallCov {
 }
 
 func (mgr *Manager) fuzzerConnect(modules []host.KernelModule) (
-	[]rpctype.Input, BugFrames, map[uint32]uint32, map[uint32]uint32, error) {
+	[]rpctype.Input, BugFrames, map[uint64]uint64, map[uint64]uint64, error) {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
 
