@@ -193,7 +193,9 @@ func makeDWARFUnsafe(params *dwarfParams) (*Impl, error) {
 		Symbolize: func(pcs map[*Module][]uint64) ([]Frame, error) {
 			return symbolize(target, objDir, srcDir, buildDir, pcs)
 		},
-		RestorePC: makeRestorePC(params, pcBase),
+		RestorePC: func(pc uint64) uint64 {
+			return PreviousInstructionPC(target, RestorePC(uint64(pc), uint32(pcBase>>32)))
+		},
 	}
 	return impl, nil
 }

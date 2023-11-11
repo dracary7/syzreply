@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/syzkaller/pkg/cover"
 	"github.com/google/syzkaller/pkg/csource"
 	"github.com/google/syzkaller/pkg/hash"
 	"github.com/google/syzkaller/pkg/host"
@@ -64,6 +65,11 @@ type Fuzzer struct {
 	maxSignal    signal.Signal // max signal ever observed including flakes
 	newSignal    signal.Signal // diff of maxSignal since last sync with master
 
+	coverIPTMu     sync.RWMutex
+	corpusIPTCover cover.Cover // ...
+	maxIPTCover    cover.Cover // cover from fuzzer
+	newIPTCover    cover.Cover // new coverage from fuzzer
+
 	checkResult *rpctype.CheckArgs
 	logMu       sync.Mutex
 }
@@ -87,6 +93,7 @@ const (
 	StatSeed
 	StatCollide
 	StatBufferTooSmall
+	StatImportant
 	StatCount
 )
 
@@ -101,6 +108,7 @@ var statNames = [StatCount]string{
 	StatSeed:           "exec seeds",
 	StatCollide:        "exec collide",
 	StatBufferTooSmall: "buffer too small",
+	StatImportant:      "exec important",
 }
 
 type OutputType int
@@ -576,6 +584,13 @@ func (fuzzer *Fuzzer) corpusSignalDiff(sign signal.Signal) signal.Signal {
 	return fuzzer.corpusSignal.Diff(sign)
 }
 
+func (fuzzer *Fuzzer) corpusIPTCoverDiff(cover cover.Cover) cover.Cover {
+	fuzzer.coverIPTMu.RLock()
+	defer fuzzer.coverIPTMu.RUnlock()
+	diff := fuzzer.corpusIPTCover.Diff(cover)
+	return diff
+}
+
 func (fuzzer *Fuzzer) checkNewSignal(p *prog.Prog, info *ipc.ProgInfo) (calls []int, extra bool) {
 	fuzzer.signalMu.RLock()
 	defer fuzzer.signalMu.RUnlock()
@@ -599,6 +614,49 @@ func (fuzzer *Fuzzer) checkNewCallSignal(p *prog.Prog, info *ipc.CallInfo, call 
 	fuzzer.newSignal.Merge(diff)
 	fuzzer.signalMu.Unlock()
 	fuzzer.signalMu.RLock()
+	return true
+}
+
+// doesn't matter that syzkaller do not use check new cover
+func (fuzzer *Fuzzer) checkNewCover(p *prog.Prog, info *ipc.ProgInfo) bool {
+	return false
+}
+func (fuzzer *Fuzzer) checkNewCallCover(p *prog.Prog, info *ipc.CallInfo, call int) bool {
+	return false
+}
+
+func (fuzzer *Fuzzer) checkNewCoverIPT(p *prog.Prog, info *ipc.ProgInfo) (calls []int) {
+	fuzzer.coverIPTMu.Lock()
+	defer fuzzer.coverIPTMu.Unlock()
+	for i, inf := range info.Calls {
+		if fuzzer.checkNewCallCoverIPT(p, &inf, i) {
+			calls = append(calls, i)
+		}
+	}
+	// extra = fuzzer.checkNewCallCoverIPT(p, &info.Extra, -1)
+	return
+}
+
+func (fuzzer *Fuzzer) checkNewCallCoverIPT(p *prog.Prog, info *ipc.CallInfo, call int) bool {
+	// TODO: need call (int) infomation
+	var ipt []uint64
+
+	for _, c := range info.Cover {
+		high := uint32((c >> 32) & 0xffffffff)
+		low := uint32(c & 0xffffffff)
+		if high != 0xffffffff {
+			ipt = append(ipt, 0xffffffff00000000+uint64(low))
+		}
+	}
+
+	diff := fuzzer.maxIPTCover.DiffRaw(ipt)
+	if diff.Empty() {
+		return false
+	}
+	// cover.Deserialize(ipt)
+	// fuzzer.corpusIPTCover.Merge(ipt)
+	fuzzer.maxIPTCover.Merge(diff)
+	fuzzer.newIPTCover.Merge(diff)
 	return true
 }
 

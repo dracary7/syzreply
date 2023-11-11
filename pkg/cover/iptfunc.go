@@ -1,0 +1,5 @@
+package cover
+
+const SANCOV_FUNCHEADER = 0x1
+const SANCOV_FUNCIPT = 0x2
+const SANCOV_FUNCIPT_MASK = 0xFFFFC

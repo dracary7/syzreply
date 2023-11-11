@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +45,8 @@ var (
 	flagConfig = flag.String("config", "", "configuration file")
 	flagDebug  = flag.Bool("debug", false, "dump all VM output to console")
 	flagBench  = flag.String("bench", "", "write execution statistics into this file periodically")
+	flagAttach = flag.Bool("attach", false, "attach the debug process to debug syz-fuzzer at default port 2345")
+	flagBegin  = flag.String("begin", "", "select the begin seeds for fuzzing in workdir folder")
 )
 
 type Manager struct {
@@ -100,14 +103,14 @@ type Manager struct {
 
 type CorpusItemUpdate struct {
 	CallID   int
-	RawCover []uint32
+	RawCover []uint64
 }
 
 type CorpusItem struct {
 	Call    string
 	Prog    []byte
 	Signal  signal.Serial
-	Cover   []uint32
+	Cover   []uint64
 	Updates []CorpusItemUpdate
 }
 
@@ -204,8 +207,12 @@ func RunManager(cfg *mgrconfig.Config) {
 		usedFiles:        make(map[string]time.Time),
 		saturatedCalls:   make(map[string]bool),
 	}
-
 	mgr.preloadCorpus()
+	// FIX: Cause dequeue the frist is the last of the slice
+	// So put our begin seeds at the end of the candidates
+	if *flagBegin != "" {
+		mgr.loadSeeds()
+	}
 	mgr.initStats() // Initializes prometheus variables.
 	mgr.initHTTP()  // Creates HTTP server.
 	mgr.collectUsedFiles()
@@ -613,6 +620,34 @@ func (mgr *Manager) preloadCorpus() {
 	}
 }
 
+// entry of load our own seeds
+func (mgr *Manager) loadSeeds() {
+	if beginDir := filepath.Join(mgr.cfg.Workdir, *flagBegin); osutil.IsExist(beginDir) {
+		seeds, err := ioutil.ReadDir(beginDir)
+		if err != nil {
+			log.Fatalf("Cannot open %v folder: %v", *flagBegin, err)
+			return
+		}
+		for i, seed := range seeds {
+			data, err := ioutil.ReadFile(filepath.Join(beginDir, seed.Name()))
+			if err != nil {
+				log.Fatalf("failed to read %v seed: %v", seed.Name(), err)
+				return
+			}
+			mgr.seeds = append(mgr.seeds, data)
+			log.Logf(0, "adding %v as a candidate", i)
+			mgr.candidates = append(mgr.candidates, rpctype.Candidate{
+				Prog:      data,
+				Minimized: false,
+				Smashed:   false,
+			})
+		}
+	} else {
+		log.Fatalf("begin folder do not existed!\n")
+		return
+	}
+}
+
 func (mgr *Manager) loadCorpus() {
 	// By default we don't re-minimize/re-smash programs from corpus,
 	// it takes lots of time on start and is unnecessary.
@@ -687,20 +722,30 @@ func (mgr *Manager) loadProg(data []byte, minimized, smashed bool) bool {
 			// deleted from the corpus.
 			leftover := programLeftover(mgr.target, mgr.targetEnabledSyscalls, data)
 			if len(leftover) > 0 {
-				mgr.candidates = append(mgr.candidates, rpctype.Candidate{
+				// mgr.candidates = append(mgr.candidates, rpctype.Candidate{
+				// 	Prog:      leftover,
+				// 	Minimized: false,
+				// 	Smashed:   smashed,
+				// })
+				mgr.candidates = append([]rpctype.Candidate{rpctype.Candidate{
 					Prog:      leftover,
 					Minimized: false,
 					Smashed:   smashed,
-				})
+				}}, mgr.candidates...)
 			}
 		}
 		return true
 	}
-	mgr.candidates = append(mgr.candidates, rpctype.Candidate{
+	// mgr.candidates = append(mgr.candidates, rpctype.Candidate{
+	// 	Prog:      data,
+	// 	Minimized: minimized,
+	// 	Smashed:   smashed,
+	// })
+	mgr.candidates = append([]rpctype.Candidate{rpctype.Candidate{
 		Prog:      data,
 		Minimized: minimized,
 		Smashed:   smashed,
-	})
+	}}, mgr.candidates...)
 	return true
 }
 
@@ -824,6 +869,16 @@ func (mgr *Manager) runInstanceInner(index int, instanceName string) (*report.Re
 		},
 	}
 	cmd := instance.FuzzerCmd(args)
+	if *flagAttach {
+		// Add debugee dlv for syz-fuzzer port is 2345
+		tmp := strings.Split(cmd, " ")
+		debug_cmd := "dlv --headless --api-version=2 --log --listen=:2345 exec " + tmp[0] + " -- "
+		for i := 1; i < len(tmp); i++ {
+			debug_cmd += " " + tmp[i]
+		}
+		cmd = debug_cmd
+		log.Logf(-1, "Please attach the vm syz-fuzzer and execute:\n"+cmd)
+	}
 	outc, errc, err := inst.Run(mgr.cfg.Timeouts.VMRunningTime, mgr.vmStop, cmd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to run fuzzer: %w", err)
@@ -1310,7 +1365,7 @@ func (mgr *Manager) collectSyscallInfoUnlocked() map[string]*CallCov {
 		}
 		cc := calls[inp.Call]
 		cc.count++
-		cc.cov.Merge(inp.Cover)
+		cc.cov.MergeRaw(inp.Cover)
 	}
 	return calls
 }
@@ -1373,8 +1428,8 @@ func (mgr *Manager) newInput(inp rpctype.Input, sign signal.Signal) bool {
 		sign.Merge(old.Signal.Deserialize())
 		old.Signal = sign.Serialize()
 		var cov cover.Cover
-		cov.Merge(old.Cover)
-		cov.Merge(inp.Cover)
+		cov.MergeRaw(old.Cover)
+		cov.MergeRaw(inp.Cover)
 		old.Cover = cov.Serialize()
 		const maxUpdates = 32
 		old.Updates = append(old.Updates, update)
