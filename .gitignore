@@ -24,6 +24,11 @@ dashboard/app/.gcloudignore
 
 # jetbrains goland
 .idea
+.vscode
+.cache/
+
+# additional
+compile_commands.json
 
 # vscode
 .vscode

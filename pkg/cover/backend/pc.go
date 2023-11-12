@@ -9,8 +9,9 @@ import (
 	"github.com/google/syzkaller/sys/targets"
 )
 
-func RestorePC(pc, base uint32) uint64 {
-	return uint64(base)<<32 + uint64(pc)
+func RestorePC(pc uint64, base uint32) uint64 {
+	// remove SANCOV_FLAGS
+	return uint64(base)<<32 + pc&0xffffffff
 }
 
 func PreviousInstructionPC(target *targets.Target, pc uint64) uint64 {

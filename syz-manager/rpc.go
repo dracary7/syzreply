@@ -25,7 +25,7 @@ type RPCServer struct {
 	modules               []host.KernelModule
 	port                  int
 	targetEnabledSyscalls map[*prog.Syscall]bool
-	coverFilter           map[uint32]uint32
+	coverFilter           map[uint64]uint64
 	stats                 *Stats
 	batchSize             int
 	canonicalModules      *cover.Canonicalizer
@@ -59,7 +59,7 @@ type BugFrames struct {
 // RPCManagerView restricts interface between RPCServer and Manager.
 type RPCManagerView interface {
 	fuzzerConnect([]host.KernelModule) (
-		[]rpctype.Input, BugFrames, map[uint32]uint32, map[uint32]uint32, error)
+		[]rpctype.Input, BugFrames, map[uint64]uint64, map[uint64]uint64, error)
 	machineChecked(result *rpctype.CheckArgs, enabledSyscalls map[*prog.Syscall]bool)
 	newInput(inp rpctype.Input, sign signal.Signal) bool
 	candidateBatch(size int) []rpctype.Candidate
@@ -288,7 +288,7 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 	if f != nil && f.rotated {
 		f.rotatedSignal.Merge(inputSignal)
 	}
-	diff := serv.corpusCover.MergeDiff(a.Cover)
+	diff := serv.corpusCover.MergeDiffRaw(a.Cover)
 	serv.stats.corpusCover.set(len(serv.corpusCover))
 	if len(diff) != 0 && serv.coverFilter != nil {
 		// Note: ReportGenerator is already initialized if coverFilter is enabled.
@@ -298,7 +298,7 @@ func (serv *RPCServer) NewInput(a *rpctype.NewInputArgs, r *int) error {
 		}
 		filtered := 0
 		for _, pc := range diff {
-			if serv.coverFilter[uint32(rg.RestorePC(pc))] != 0 {
+			if serv.coverFilter[rg.RestorePC(pc)] != 0 {
 				filtered++
 			}
 		}

@@ -128,14 +128,14 @@ const uint64 kOutputBase = 0x1b2bc20000ull;
 #if SYZ_EXECUTOR_USES_FORK_SERVER
 // Allocating (and forking) virtual memory for each executed process is expensive, so we only mmap
 // the amount we might possibly need for the specific received prog.
-const int kMaxOutputComparisons = 14 << 20; // executions with comparsions enabled are usually < 1% of all executions
-const int kMaxOutputCoverage = 6 << 20; // coverage is needed in ~ up to 1/3 of all executions (depending on corpus rotation)
-const int kMaxOutputSignal = 4 << 20;
-const int kMinOutput = 256 << 10; // if we don't need to send signal, the output is rather short.
+const int kMaxOutputComparisons = 14 << 24; // executions with comparsions enabled are usually < 1% of all executions
+const int kMaxOutputCoverage = 6 << 24; // coverage is needed in ~ up to 1/3 of all executions (depending on corpus rotation)
+const int kMaxOutputSignal = 4 << 24;
+const int kMinOutput = 256 << 14; // if we don't need to send signal, the output is rather short.
 const int kInitialOutput = kMinOutput; // the minimal size to be allocated in the parent process
 #else
 // We don't fork and allocate the memory only once, so prepare for the worst case.
-const int kInitialOutput = 14 << 20;
+const int kInitialOutput = 14 << 24;
 #endif
 
 // TODO: allocate a smaller amount of memory in the parent once we merge the patches that enable
@@ -1011,6 +1011,7 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		bool prev_filter = true;
 		for (uint32 i = 0; i < cov->size; i++) {
 			cover_data_t pc = cover_data[i] + cov->pc_offset;
+			// Mandatory type conversion to uint32
 			uint32 sig = pc & 0xFFFFF000;
 			if (use_cover_edges(pc)) {
 				// Only hash the lower 12 bits so the hash is
@@ -1045,7 +1046,9 @@ void write_coverage_signal(cover_t* cov, uint32* signal_count_pos, uint32* cover
 		// Truncate PCs to uint32 assuming that they fit into 32-bits.
 		// True for x86_64 and arm64 without KASLR.
 		for (uint32 i = 0; i < cover_size; i++)
-			write_output(cover_data[i] + cov->pc_offset);
+			// write_output(cover_data[i] + cov->pc_offset);
+			// only support 64bit system now
+			write_output_64(cover_data[i] + cov->pc_offset);
 		*cover_count_pos = cover_size;
 	}
 }

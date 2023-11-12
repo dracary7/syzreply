@@ -328,7 +328,7 @@ func (mgr *Manager) httpCoverCover(w http.ResponseWriter, r *http.Request, funcF
 	}
 	mgr.mu.Unlock()
 
-	var coverFilter map[uint32]uint32
+	var coverFilter map[uint64]uint64
 	if r.FormValue("filter") != "" {
 		coverFilter = mgr.coverFilter
 	}
